@@ -1,0 +1,61 @@
+---
+
+### Defines the tags for EC2 Instance
+Owner: "Vikram@gmail.com"
+Manager: "xyz@c.com"
+# Modify below fo each release
+env: DEV_WebServer
+resource_name: "{{ env }}"
+base_ami_type: "{{ env }}_AMI"
+resource_name_AMI: "{{ env }}_AMI-{{ timestamp }}"
+
+
+# IT Provided EC2 image 
+ec2_image_base: ami-0660454ecfd83d33d
+
+# Change below  everytime you create BASE Image
+# Not needed as this is now dynamic. ec2_image: ami-1c3ae466
+
+#-------
+## DONOT Modify below entries
+##------
+
+# Subnet, network, vpc, settings.
+ec2_instance_type: t2.micro
+ec2_subnet1_ids: subnet-28424707
+ec2_subnet2_ids: subnet-4ec0eb71
+
+
+# Security Groupsg_1
+sg_1: sg-088fd74c9c6db9c0e
+#sg_2: 
+
+#VPC
+vpc_id: vpc-e3980a98
+
+# Cert Details
+cert_arn: arn:aws:iam::477197662269:server-certificate/vikram
+#arn:aws:acm:us-east-1:477197662269:certificate/896ffc04-f25d-4e08-af6c-724d9e0860c6
+
+asg_name: dev_asg
+# availability zones
+availability_zone_1: us-east-1c   
+availability_zone_2: us-east-1e  
+
+
+instance_tags: { "Name": "{{ resource_name }}",
+                 "Env": "{{ env }}",
+                 "Manager": "{{ Manager }}",
+                 "Owner": "{{ Owner }}",
+                }
+
+AMI_instance_tags: { "Name": "{{ resource_name_AMI }}",
+                 "Env": "{{ env }}",
+                 "Manager": "{{ Manager }}",
+                 "Owner": "{{ Owner }}",
+                }
+
+
+# region
+region: us-east-1
+

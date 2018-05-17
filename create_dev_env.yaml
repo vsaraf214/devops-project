@@ -1,0 +1,141 @@
+---
+- name: Create DEV env ALB, LC, etc
+  hosts: localhost
+  gather_facts: yes
+  vars_files:
+    - "group_vars/vars.yml"
+  
+  pre_tasks:
+  - set_fact:
+       timestamp: "{{lookup('pipe','date +%Y%m%d%H%M%S')}}"
+
+  tasks:
+  - name: Find the latest AMI
+    ec2_ami_find:
+     owner: self
+     ami_tags:
+      Name: "{{ resource_name }}*"
+     no_result_action: fail
+     region: "{{ region }}"
+     sort: creationDate
+     sort_order: descending
+     sort_end: 1
+    register: ami_find
+
+  - ec2_elb_lb:
+     name: dev-lb
+     state: present
+     region: "{{ region }}"
+     zones:
+      - "{{ availability_zone_1 }}"
+      - "{{ availability_zone_2 }}"
+     listeners:
+      - protocol: http
+        load_balancer_port: 80
+        instance_port: 80
+        proxy_protocol: True
+      - protocol: https
+        load_balancer_port: 443
+        instance_protocol: http 
+        instance_port: 80
+        # ssl certificate required for https or ssl
+        ssl_certificate_id: "{{ cert_arn }}"
+ 
+  - name: Create Launch Configuration
+    ec2_lc:
+     name: "dev_lc-{{ timestamp }}"
+     image_id: "{{ ami_find.results[0].ami_id }}"
+     region: "{{ region }}"
+     security_groups: "{{ sg_1 }}"
+     instance_type: "{{ ec2_instance_type }}"
+     assign_public_ip: yes
+
+  - name: Create Auto Scaling Group
+    ec2_asg:
+     name: "{{ asg_name }}"
+     launch_config_name: "dev_lc-{{ timestamp }}"
+     health_check_period: 60
+     health_check_type: ELB
+     replace_all_instances: yes
+     min_size: 2 
+     max_size: 6 
+     desired_capacity: 2
+     load_balancers:
+       - dev-lb 
+     region: "{{ region }}"
+     vpc_zone_identifier: [ '{{ ec2_subnet1_ids }}', '{{ ec2_subnet2_ids }}' ] 
+     tags:
+       - "Name": "{{ env }}-ASG"
+
+    
+  - name: create scale down  policy
+    ec2_scaling_policy:
+     state: present
+     region: "{{ region | default('us-east-1') }}"
+     name: "{{ asg_name }}-SCALE-DOWN-POLICY"
+     adjustment_type: ChangeInCapacity
+     asg_name: "{{ asg_name }}"
+     scaling_adjustment: -1
+     min_adjustment_step: -1
+     cooldown: 300
+    register: scale_down_policy
+    tags: scaling_policy
+
+  - name: create scale up policy
+    ec2_scaling_policy:
+     state: present
+     region: "{{ region | default('us-east-1') }}"
+     name: "{{ asg_name }}-SCALE-UP-POLICY"
+     adjustment_type: ChangeInCapacity
+     asg_name: "{{ asg_name }}"
+     scaling_adjustment: 1
+     min_adjustment_step: 1
+     cooldown: 300
+    register: scale_up_policy
+    tags: scaling_policy
+
+  - name: create scale down alarm
+    ec2_metric_alarm:
+     state: present
+     region: "{{ region | default('us-east-1') }}"
+     name: "cpu-low"
+     metric: CPUUtilization
+     namespace: "AWS/EC2"
+     statistic: Average
+     comparison: "<="
+     threshold: 35.0
+     period: 300
+     evaluation_periods: 3
+     unit: "Percent"
+     description: "This will alarm when cpu usage average is lower than 35% for 15 minutes "
+     dimensions: 
+      AutoScalingGroupName: "{{ asg_name }}"
+     alarm_actions:  
+      - "{{ scale_down_policy.arn }}"
+    tags: alarm
+
+  - name: create scale up alarm
+    ec2_metric_alarm:
+     state: present
+     region: "{{ region | default('us-east-1') }}"
+     name: "cpu-high"
+     metric: CPUUtilization
+     namespace: "AWS/EC2"
+     statistic: Average
+     comparison: ">="
+     threshold: 75.0
+     period: 300
+     evaluation_periods: 3
+     unit: "Percent"
+     description: "This will alarm when cpu usage average is higher than 75% for 15 minutes "
+     dimensions: 
+      AutoScalingGroupName: "{{ asg_name }}"
+     alarm_actions: 
+       - "{{ scale_up_policy.arn }}"
+    tags: alarm  
+  
+  
+  
+  
+  
+

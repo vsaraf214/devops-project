@@ -1,0 +1,126 @@
+---
+# ---------------------------------
+# create EC2 with IT Provided  AMI
+# ---------------------------------
+- name: Create Base AMI
+  hosts: localhost
+  gather_facts: yes
+  vars_files:
+    - "group_vars/vars.yml"
+
+  pre_tasks:
+  - set_fact:
+        timestamp: "{{lookup('pipe','date +%Y%m%d%H%M%S')}}"
+  tasks:
+  - name: Create Base EC2 Instance
+    ec2:
+     instance_type: "{{ ec2_instance_type }}"
+     image: "{{ ec2_image_base }}"
+     ec2_region: "{{ region }}"
+     wait: yes
+     instance_tags: "{{ AMI_instance_tags }}"
+     group_id: [ "{{ sg_1 }}" ]
+     vpc_subnet_id: "{{ ec2_subnet1_ids }}"
+     assign_public_ip: yes
+     exact_count: 1
+     count_tag:
+      Name: "{{ resource_name_AMI }}"
+ #   register: temp_ec2
+# Added this section so that rerunning failed attempt works without duplicating
+# Not applicable since I added a timestamp variable.
+  - name: Search created ec2
+    ec2_remote_facts:
+     filters:
+      "tag:Name": "{{resource_name_AMI}}"
+     region: "{{ region }}"
+    register: temp_ec2    
+
+  - name: display ec2
+    debug: msg="Newly created ec2 - {{ temp_ec2.instances[0]['private_ip_address'] }}"
+
+  - pause: seconds=120
+
+  - name: Add all instance private  IPs to host group
+    add_host: name="{{ temp_ec2.instances[0]['private_ip_address'] }}" groups=webserver
+
+# --------------------------------
+# install pre-reqs to EC2
+# -------------------------------
+- name: install Pre-req
+  hosts: webserver
+  become: true
+  tasks:
+  - name: install the latest version of Apache
+    yum: name=httpd.x86_64 state=latest
+
+  - name: start the httpd service
+    service: name=httpd state=started enabled=yes
+
+#----------
+# Adding http to https conversion
+# ---------
+#
+  - name: Add parameters to httpd.conf to convert http to https
+    lineinfile: dest=/etc/httpd/conf/httpd.conf regexp="^RewriteEngine " line="RewriteEngine On" state=present
+    notify: restart apache
+
+  - lineinfile: dest=/etc/httpd/conf/httpd.conf regexp="^RewriteCond " line="RewriteCond %{HTTP:X-Forwarded-Proto} =http" state=present
+    notify: restart apache
+
+  - lineinfile: dest=/etc/httpd/conf/httpd.conf regexp="^RewriteRule " line="RewriteRule . https://%{HTTP:Host}%{REQUEST_URI} [L,R=permanent]" state=present
+    notify: restart apache
+
+#------------------------------------
+# Add index.html
+# -----------------------------------
+
+  - name: Code Deployment
+    copy:
+     src: index.html
+     dest: /var/www/html
+     owner: root
+     group: root
+  
+
+  handlers:
+  - name: restart apache
+    service: name=httpd state=restarted
+#------------------------------------
+# Create Deployment  AMI from this image
+# -----------------------------------
+- name: Create Base AMI
+  hosts: localhost
+  gather_facts: yes
+  vars_files:
+    - "group_vars/vars.yml"
+
+  tasks:
+  - ec2_ami:
+     instance_id: "{{ temp_ec2.instances[0]['id'] }}" 
+     wait: yes
+     name: "{{ resource_name_AMI }}"
+     region: "{{ region }}"
+     tags:
+      Name: "{{ resource_name_AMI }}"
+      Type: "{{ base_ami_type }}"
+    register: image
+    
+  - name: display AMI Details
+    debug: msg="Newly created AMI ID is {{ image.image_id }}"
+
+#----------------------------------------------------------------------
+# Terminate the EC2 Instnce created for AMI Creation purpose
+#-----------------------------------------------------------------------
+- name: Terminate instances
+  hosts: localhost
+  gather_facts: yes
+  vars_files:
+    - "group_vars/vars.yml"
+
+  tasks:
+    - name: Terminate instances that were previously launched
+      ec2:
+        state: 'absent'
+        region: "{{ region }}"
+        instance_ids: "{{ temp_ec2.instances[0]['id'] }}" 
+
