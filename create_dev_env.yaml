@@ -54,7 +54,7 @@
     ec2_asg:
      name: "{{ asg_name }}"
      launch_config_name: "dev_lc-{{ timestamp }}"
-     health_check_period: 60
+     health_check_period: 240
      health_check_type: ELB
      replace_all_instances: yes
      min_size: 2 
