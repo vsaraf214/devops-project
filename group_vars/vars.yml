@@ -39,7 +39,7 @@ cert_arn: arn:aws:iam::477197662269:server-certificate/vikram
 
 asg_name: dev_asg
 # availability zones
-availability_zone_1: us-east-1c   
+availability_zone_1: us-east-1b   
 availability_zone_2: us-east-1e  
 
 
